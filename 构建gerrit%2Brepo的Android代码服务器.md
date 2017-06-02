@@ -112,8 +112,8 @@ http://lipeng1667.github.io/2017/01/18/gerrit-guide/  (可忽略sourceTree部分
 >repo是我们建立在 Git 顶部的一个存储库管理工具。Repo 在必要时可以统一许多个 Git 仓库，上传到我们的 版本控制系统，并且自动化 Android 部分开发工作流程。Repo 并不意味着取代 Git，只是帮助更容易地在 Android 环境中使用 Git。Repo 命令是一个可执行的 Python 脚本，你可以把它放在你的任何路径上。在使用 Android 源文件工作时，你将把 Repo 使用于跨网络操作。例如，使用一个单一的 Repo 命令，你就可以从多个存储库下载文件到你的本地目录下。
 
 1. 下载repo可执行脚本（客户端）
-`curl http://android.git.kernel.org/repo > ~/bin/repo`
-`chmod a+x ~/bin/repo`
+`curl http://android.git.kernel.org/repo > /usr/bin/repo`
+`chmod a+x /usr/bin/repo`
 
 
 ## 第三部分：上传Android代码到gerrit服务器
@@ -122,7 +122,7 @@ http://lipeng1667.github.io/2017/01/18/gerrit-guide/  (可忽略sourceTree部分
 	可以直接通过gerrit网页新建
 
 - clone到本地（客户端）
-git clone ssh://admin@172.16.10.116:29418/manifest.git
+git clone ssh://admin@172.16.10.238:29418/manifest.git
 
 - 配置default.xml（客户端）
 `cd manifest`
@@ -132,10 +132,10 @@ git clone ssh://admin@172.16.10.116:29418/manifest.git
 <?xml version="1.0" encoding="UTF-8"?>
 <manifest>
   
-  <remote  name="origin"
-           fetch=".." />
-  <default revision="master"
-           remote="origin"
+  <remote  name="exdroid"
+           fetch="android" />
+  <default revision="r16-v1.y"
+           remote="exdroid"
            sync-j="8" />
   
   <project path="build" name="platform/build" groups="pdk" >
@@ -146,42 +146,55 @@ git clone ssh://admin@172.16.10.116:29418/manifest.git
 ```
 -  上传到远程仓库
 `git add .`
-`git comm -am "add default.xml"`
+`git comm -am "add android.xml"`
 `git push origin master`
 
 
 
-2.创建git仓库
+2.创建git仓库并上传本地带git信息工程到服务器
 - 进入Android代码目录，新建脚本文件
-`cd src<br>vi gerrit_create.sh`
+`vim GitPushAllLocalReposityToGerrit.sh`
 内容如下：
 
 ```shell
+#BEGIN:
+
+#####################################################################################
+##将本地代码全部上传到gerrit服务器进行管理，包括每一个仓库的本地所有分支和tag
+#####################################################################################
 LOCAL_PATH=`pwd`
-MANIFEST_XML_FILE=$LOCAL_PATH/../manifest/default.xml
- 
+MANIFEST_XML_FILE=/tmp/ttt/manifest/android.xml
+
+#项目各个仓库的前缀，用于区分多个项目仓
+PROJECT_NAME_PREFIX="android"
+#git用户名字，gerrit服务器ip，gerrit服务器端口
 USER_NAME="admin"
-SERVER_IP="172.16.10.116"
+SERVER_IP="172.16.10.238"
 SERVER_PORT="29418"
- 
+
+#用repo命令时表示各个仓库的变量
+REPO_PROJECT_STRING="\$REPO_PROJECT"
+
+
 OUTPUT_PROJECT_LIST_FILE_NAME=$LOCAL_PATH/project_list_name
 OUTPUT_PROJECT_LIST_FILE_PATH=$LOCAL_PATH/project_list_path
- 
+
+#从.repo/manifest.xml中获取各个仓的名字和路径
 function getNameAndPath()
 {
     echo > $OUTPUT_PROJECT_LIST_FILE_NAME
     echo > $OUTPUT_PROJECT_LIST_FILE_PATH
- 
+
     while read LINE
     do
         command_line=`echo $LINE | grep "<project"`
-        if [ "$command_line" ]
+        if [ "$command_line" ] 
         then
             #echo $LINE
- 
+
             reposity_name_sec=${LINE#*name=\"}
             reposity_path_sec=${LINE#*path=\"}
- 
+
             if [ "$reposity_name_sec" ] && [ "$reposity_path_sec" ]
             then
                 reposity_name=${reposity_name_sec%%\"*}
@@ -192,90 +205,82 @@ function getNameAndPath()
         fi
     done  < $MANIFEST_XML_FILE
 }
- 
+
+
+#在远程gerrit服务器建立各个仓
 function creatEmptyGerritProject()
 {
     for i in `cat $OUTPUT_PROJECT_LIST_FILE_NAME`;
     do
         echo $i
-        echo "ssh -p $SERVER_PORT $USER_NAME@$SERVER_IP gerrit create-project --empty-commit $i"
-        ssh -p $SERVER_PORT $USER_NAME@$SERVER_IP gerrit create-project --empty-commit $i
+        echo "ssh -p $SERVER_PORT $USER_NAME@$SERVER_IP gerrit create-project -n $PROJECT_NAME_PREFIX/$i"
+
+        #在gerrit服务器创建空项目
+
+        ssh -p $SERVER_PORT $USER_NAME@$SERVER_IP gerrit create-project -n $PROJECT_NAME_PREFIX/$i
     done
 }
- 
-function removeFiles()
-{
-    rm -rf $LOCAL_PATH/project_list_name
-    rm -rf $LOCAL_PATH/project_list_path
-}
- 
-getNameAndPath
-creatEmptyGerritProject
-removeFiles
-```
-- 运行脚本，创建git仓库
-`. /gerrit_create.sh`
 
-3.上传代码到远程仓库
-- 新建脚本gerrit_push.sh，内容如下：
 
-```shell
-LOCAL_PATH=`pwd`
-MANIFEST_XML_FILE=$LOCAL_PATH/../manifest/default.xml
- 
-USER_NAME="admin"
-SERVER_IP="172.16.10.116"
-SERVER_PORT="29418"
- 
-function pushLocalToRemote()
+
+#推送本地仓库到服务器，包括本地仓库的所有branch分支信息和tag标签信息
+function pushLocalReposityToRemote()
 {
- 
+
     while read LINE
     do
         cd $LOCAL_PATH
         command_line=`echo $LINE | grep "<project"`
-        if [ "$command_line" ]
+        if [ "$command_line" ] 
         then
             #echo $LINE
             reposity_name_sec=${LINE#*name=\"}
             reposity_path_sec=${LINE#*path=\"}
- 
+
             if [ "$reposity_name_sec" ] && [ "$reposity_path_sec" ]
             then
                 reposity_name=${reposity_name_sec%%\"*}
                 reposity_path=${reposity_path_sec%%\"*}
- 
-                src_path=$LOCAL_PATH/$reposity_path
- 
-                if [ -d "$src_path" ]; then
-                    cd $src_path
-                    echo `pwd`
- 
-                    rm -rf .git
-                    rm -rf .gitignore
-                    git init
-                    git remote add origin ssh://$USER_NAME@$SERVER_IP:$SERVER_PORT/$reposity_name.git
-                    git pull origin master
-                    git add -A .
-                    git commit -am "init commit"
-                    git push origin master
-                    cd -
-                fi
+
+                cd $LOCAL_PATH/$reposity_path
+                echo `pwd`
+
+                REMOTE_REPOSITY_NAME=`git remote`
+                ALL_LOCAL_BRANCHS=`git branch -a | grep "remotes/$REMOTE_REPOSITY_NAME"`
+                for branchLoop in `echo $ALL_LOCAL_BRANCHS`
+                do
+                    BRANCH_NAME=${branchLoop#*$REMOTE_REPOSITY_NAME\/}
+                    echo "------------local branch name is------------:$BRANCH_NAME"
+                    echo "------------local branch loop is------------:$branchLoop"
+                
+                    #提交本地所有分支信息到远程分支
+                    git push  ssh://$USER_NAME@$SERVER_IP:$SERVER_PORT/$PROJECT_NAME_PREFIX/$reposity_name $branchLoop:refs/heads/$BRANCH_NAME
+					
+                    #提交本地所有tag信息到远程分支
+                    git push --tag ssh://$USER_NAME@$SERVER_IP:$SERVER_PORT/$PROJECT_NAME_PREFIX/$reposity_name 
+                done
+
+
             fi
         fi
- 
+
     done  < $MANIFEST_XML_FILE
+
 }
- 
-pushLocalToRemote
 
+#调用函数执行建仓传代码的整个过程
+getNameAndPath
+creatEmptyGerritProject
+pushLocalReposityToRemote
+
+#END
 ```
+- 运行脚本，创建git仓库
+`. /GitPushAllLocalReposityToGerrit.sh`
 
-- 运行脚本，push代码
-`./gerrit_push.sh`
 
-4.下载代码
-`mkdir -p ../des`
-`cd ../des`
-`repo init -u ssh://admin@172.16.10.116:29418/all/manifest.git`
+3.下载代码
+`mkdir android`
+`cd android`
+`repo init -u ssh://caijun.yang@172.16.10.238:29418/manifest.git  -m android.xml`
 `repo sync -f -j8`
