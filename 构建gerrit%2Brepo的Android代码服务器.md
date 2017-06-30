@@ -284,6 +284,6 @@ pushLocalReposityToRemote
 3.下载代码
 `mkdir android`
 `cd android`
-`repo init -u ssh://caijun.yang@172.16.10.238:29418/manifest.git  -m android.xml`
+`repo init -u ssh://caijun.yang@172.16.10.238:29418/git_repo/ParrotV1.1/manifest.git  -m android.xml`
 `repo sync -f -j8`
 `repo start atv51-h5-release --all`
