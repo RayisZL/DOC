@@ -114,30 +114,32 @@ http://lipeng1667.github.io/2017/01/18/gerrit-guide/  (可忽略sourceTree部分
 1. 下载repo可执行脚本（客户端）
 `curl http://android.git.kernel.org/repo > /usr/bin/repo`
 `chmod a+x /usr/bin/repo`
+2. 如果出现下载失败或者repo init 错误 fatal: Cannot get https://gerrit.googlesource.com/git-repo/clone.bundle
+原因是当repo init时，执行的repo是环境变量里面默认的repo，这个repo只是单纯一个几百行的Python脚本，而不是完整的repo-project，所以要先去网络远端sync完整的repo-project。因为repo也是开源项目，设计者出于维护和使用体验，每次repo init时候都要从远端sync最新的版本在repo init成功情况sync的project会在./.repo/repo这个路径，包含repo所有功能逻辑的python脚本，而正是因为远端的git server的域名gerrit.googlesource.com会被GFW挡掉。就会出现Network is unreachable，运气不好的时候可能一整天都没办法init成功。
+解决芳方法：通过分析repo 脚本，就会发现根据当前run的repo的路径中是否有main.py和当前目录的.git信息，来判断是否是完整的repo-project,如果不是就会触发git clone 去sync repo-project。那么避开git clone 的方法就是run repo-project中的repo 来init。如果你曾经有init成功过，就会在当年的目录下有一个.repo文件，例如{PATH}，那么就引用那个{PATH}/.repo/repo/repo来init就不会去sync完整repo-project了如果是首次repo init，没关系，直接下载后面的.repo完整文件就好。（git clone ssh://admin@172.16.10.238:29418/git_repo/repo）
 
-
-## 第三部分：上传Android代码到gerrit服务器
-1. 配置default.xml
-- 新建manifest.git
-	可以直接通过gerrit网页新建
+## 第三部分：上传代码到gerrit服务器（以全志ParrotV1.1 android代码为例）
+1. 配置android.xml
+- 新建manifest.git（客户端）
+	`ssh -p 29418 admin@172.16.10.238 gerrit create-project -n git_repo/ParrotV1.1/manifest`
 
 - clone到本地（客户端）
-git clone ssh://admin@172.16.10.238:29418/manifest.git
+`git clone ssh://admin@172.16.10.238:29418/git_repo/ParrotV1.1/manifest`
 
-- 配置default.xml（客户端）
+- 配置android.xml（客户端）
 `cd manifest`
-`vi default.xml`
+`vi android.xml`
 内容如下
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <manifest>
-  
+
   <remote  name="exdroid"
-           fetch="android" />
+           fetch="../../ParrotV1.1/android" />
   <default revision="r16-v1.y"
            remote="exdroid"
-           sync-j="8" />
-  
+           sync-j="4" />
+
   <project path="build" name="platform/build" groups="pdk" >
     <copyfile src="core/root.mk" dest="Makefile" />
   </project>
@@ -146,7 +148,7 @@ git clone ssh://admin@172.16.10.238:29418/manifest.git
 ```
 -  上传到远程仓库
 `git add .`
-`git comm -am "add android.xml"`
+`git commt -am "add android.xml"`
 `git push origin master`
 
 
@@ -163,10 +165,10 @@ git clone ssh://admin@172.16.10.238:29418/manifest.git
 ##将本地代码全部上传到gerrit服务器进行管理，包括每一个仓库的本地所有分支和tag
 #####################################################################################
 LOCAL_PATH=`pwd`
-MANIFEST_XML_FILE=/tmp/ttt/manifest/android.xml
+MANIFEST_XML_FILE=/opt/gerrit/git_repo/ParrotV1.1/manifest/android.xml
 
 #项目各个仓库的前缀，用于区分多个项目仓
-PROJECT_NAME_PREFIX="android"
+PROJECT_NAME_PREFIX="ParrotV1.1/android"
 #git用户名字，gerrit服务器ip，gerrit服务器端口
 USER_NAME="admin"
 SERVER_IP="172.16.10.238"
@@ -257,7 +259,7 @@ function pushLocalReposityToRemote()
                     git push  ssh://$USER_NAME@$SERVER_IP:$SERVER_PORT/$PROJECT_NAME_PREFIX/$reposity_name $branchLoop:refs/heads/$BRANCH_NAME
 					
                     #提交本地所有tag信息到远程分支
-                    git push --tag ssh://$USER_NAME@$SERVER_IP:$SERVER_PORT/$PROJECT_NAME_PREFIX/$reposity_name 
+                    git push --tag ssh://$USER_NAME@$SERVER_IP:$SERVER_PORT/$PROJECT_NAME_PREFIX/$reposity_name #$branchLoop:refs/tags/$BRANCH_NAME
                 done
 
 
@@ -284,3 +286,4 @@ pushLocalReposityToRemote
 `cd android`
 `repo init -u ssh://caijun.yang@172.16.10.238:29418/manifest.git  -m android.xml`
 `repo sync -f -j8`
+`repo start atv51-h5-release --all`
